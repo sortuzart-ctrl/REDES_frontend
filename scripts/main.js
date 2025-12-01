@@ -779,6 +779,50 @@ let contadorNumerosFotos = 1; // Contador global para mantener numeración conti
 // Overlay para cerrar paneles
 const overlayPanel = document.getElementById('overlayPanel');
 
+// ================== INDEXEDDB PARA INFORMES GRANDES ==================
+const DB_NAME = 'bitacoraDB';
+const DB_VERSION = 1;
+const STORE_INFORMES = 'informesGuardados';
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+    request.onupgradeneeded = (event) => {
+      const db = event.target.result;
+      if (!db.objectStoreNames.contains(STORE_INFORMES)) {
+        const store = db.createObjectStore(STORE_INFORMES, { keyPath: 'id', autoIncrement: true });
+        store.createIndex('timestamp', 'timestamp', { unique: false });
+      }
+    };
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error('Error abriendo IndexedDB'));
+  });
+}
+
+async function addInformeIndexedDB(informe) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_INFORMES, 'readwrite');
+    const store = tx.objectStore(STORE_INFORMES);
+    const req = store.add(informe);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error || new Error('Error guardando informe en IndexedDB'));
+  });
+}
+
+async function getInformesIndexedDB() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_INFORMES, 'readonly');
+    const store = tx.objectStore(STORE_INFORMES);
+    const req = store.getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error || new Error('Error leyendo informes desde IndexedDB'));
+  });
+}
+
 // Settings (persistidos en localStorage)
 const DEFAULT_SETTINGS = { 
   defaultColor: '#1976d2', 
@@ -2515,42 +2559,26 @@ function guardarInformeDiario() {
     };
 
     try {
-      const informes = JSON.parse(localStorage.getItem('informesGuardados') || '[]');
-      informes.push(informe);
-      
-      const jsonString = JSON.stringify(informes);
-      const sizeInMB = (jsonString.length / (1024 * 1024)).toFixed(2);
-      
-      // Verificar tamaño antes de guardar
-      if (jsonString.length > 4500000) { // ~4.5MB (localStorage límite es ~5MB)
-        throw new Error(`El informe es demasiado grande (${sizeInMB} MB). Intenta con menos imágenes o imágenes más pequeñas.`);
-      }
-      
-      localStorage.setItem('informesGuardados', jsonString);
-      
+      // Guardar en IndexedDB (sin límite práctico de 5MB como localStorage)
+      await addInformeIndexedDB(informe);
+
+      // Mantener en localStorage solo un pequeño índice (sin contenido grande)
+      const indice = JSON.parse(localStorage.getItem('informesGuardados') || '[]');
+      indice.push({ fecha: informe.fecha, nombre: informe.nombre, timestamp: informe.timestamp });
+      localStorage.setItem('informesGuardados', JSON.stringify(indice));
+
       // Agregar a cola de sincronización
       agregarAColaSincronizacion({
         type: 'GUARDAR_INFORME',
         data: informe
       });
-      
-      let mensaje = `✅ Informe "${nombreInforme}" guardado exitosamente`;
-      if (sizeInMB > 3) {
-        mensaje += `\n\n⚠️ Tamaño: ${sizeInMB} MB. Considera usar menos imágenes para futuros informes.`;
-      }
-      alert(mensaje);
-      
+
+      alert(`✅ Informe "${nombreInforme}" guardado exitosamente`);
+
       // No limpiar el contenido, mantener todo visible incluyendo la bitácora
-      // La bitácora ya está guardada en localStorage y permanece en pantalla
     } catch (e) {
       console.error(e);
-      alert('❌ Error al guardar el informe.\n\n' + 
-            'El contenido es demasiado grande para localStorage.\n\n' +
-            '💡 Sugerencias:\n' +
-            '• Usa menos imágenes por informe\n' +
-            '• Reduce la resolución de las imágenes antes de cargarlas\n' +
-            '• Divide el informe en múltiples partes más pequeñas\n\n' +
-            'Puedes exportar a PDF sin problemas.');
+      alert('❌ Error al guardar el informe en almacenamiento interno. Intenta nuevamente o exporta a PDF.');
     }
   }
 }
