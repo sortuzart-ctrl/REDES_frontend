@@ -730,9 +730,9 @@ if (registerUserForm) {
   poblarEmpresasSelect();
   registerUserForm.addEventListener('submit', function(e) {
     e.preventDefault();
-    if (!usuarioActual || usuarioActual.rol !== 'Admin') {
+    if (!usuarioActual || (usuarioActual.rol !== 'Admin' && usuarioActual.tipo !== 'SuperAdmin')) {
       if (registerError) {
-        registerError.textContent = 'Solo el admin puede registrar usuarios';
+        registerError.textContent = 'Solo Admin o SuperAdmin pueden registrar usuarios';
         registerError.style.display = 'block';
       }
       return;
