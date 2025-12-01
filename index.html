@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Sistema de gestión de bitácoras diarias para inspección ROV con modo offline avanzado" />
+  <meta name="theme-color" content="#1976d2" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Bitácora ROV" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" type="image/png" href="iconos/consolidado.png" />
+  <link rel="apple-touch-icon" href="iconos/consolidado.png" />
+  <title>Panel de Informes - Bitácora ROV</title>
+  <link rel="stylesheet" href="styles/style.css" />
+</head>
+<body>
+  <!-- Menú lateral izquierdo -->
+  <nav class="menu-lateral">
+    <button id="configToggle" class="menu-item" title="Configuración">
+      <img src="iconos/configuracion.png" class="menu-icon-img" alt="Configuración" />
+      <span class="menu-texto">Configuración</span>
+    </button>
+    
+    <div class="menu-separador"></div>
+    
+    <button id="menuToggle" class="menu-item" title="Cargar esquema">
+      <img src="iconos/cargar.png" class="menu-icon-img" alt="Cargar" />
+      <span class="menu-texto">Cargar Esquema</span>
+    </button>
+    
+    <button id="crearInforme" class="menu-item" disabled title="Crear informe">
+      <img src="iconos/crear informe.png" class="menu-icon-img" alt="Crear" />
+      <span class="menu-texto">Crear Informe</span>
+    </button>
+    
+    <button id="agregarTextoEsquema" class="menu-item" disabled title="Agregar texto al esquema">
+      <img src="iconos/crear informe.png" class="menu-icon-img" alt="Texto" />
+      <span class="menu-texto">Agregar Texto</span>
+    </button>
+    
+    <button id="cargarFotosMenu" class="menu-item" disabled title="Cargar fotos al esquema">
+      <img src="iconos/crear informe.png" class="menu-icon-img" alt="Fotos" />
+      <span class="menu-texto">Cargar Fotos</span>
+    </button>
+    
+    <button id="nuevoInforme" class="menu-item" title="Nuevo informe (limpia todo)">
+      <img src="iconos/Nuevo informe.png" class="menu-icon-img" alt="Nuevo" />
+      <span class="menu-texto">Nuevo Informe</span>
+    </button>
+    
+    <button id="guardarInforme" class="menu-item" title="Guardar informe del día">
+      <img src="iconos/guardar.png" class="menu-icon-img" alt="Guardar" />
+      <span class="menu-texto">Guardar</span>
+    </button>
+    
+    <button id="verConsolidado" class="menu-item" title="Ver informes guardados">
+      <img src="iconos/consolidado.png" class="menu-icon-img" alt="Ver Informes" />
+      <span class="menu-texto">Ver Informes</span>
+    </button>
+    
+    <button id="verEstadisticas" class="menu-item" title="Ver estadísticas">
+      <img src="iconos/consolidado.png" class="menu-icon-img" alt="Estadísticas" />
+      <span class="menu-texto">Estadísticas</span>
+    </button>
+    
+    <button id="verRecordatorios" class="menu-item" title="Ver recordatorios">
+      <img src="iconos/consolidado.png" class="menu-icon-img" alt="Recordatorios" />
+      <span class="menu-texto">Recordatorios</span>
+      <span id="badgeRecordatorios" class="badge-notif" style="display:none;">0</span>
+    </button>
+    
+    <button id="exportarPDF" class="menu-item" title="Exportar a PDF">
+      <img src="iconos/guardar.png" class="menu-icon-img" alt="PDF" />
+      <span class="menu-texto">Exportar PDF</span>
+    </button>
+    
+      <!-- Botón Admin -->
+      <button id="adminMenuBtn" class="menu-item" title="Administración">
+        <img src="iconos/configuracion.png" class="menu-icon-img" alt="Admin" />
+        <span class="menu-texto">Admin</span>
+      </button>
+    
+      <!-- Panel Admin para mostrar usuarios logueados -->
+      <div id="adminPanel" class="panel-lateral oculto">
+        <h4>👤 Usuarios registrados</h4>
+        <ul id="loggedUsersList" style="padding-left:18px;"></ul>
+        <hr />
+        <h4>Registrar nuevo usuario</h4>
+        <form id="registerUserForm" style="margin-bottom:12px;">
+          <label for="newUser">Usuario:</label>
+          <input type="text" id="newUser" required style="width:100%;margin-bottom:8px;" />
+          <label for="newPass">Contraseña:</label>
+          <input type="password" id="newPass" required style="width:100%;margin-bottom:8px;" />
+          <label for="newTipo">Tipo de usuario:</label>
+          <select id="newTipo" style="width:100%;margin-bottom:8px;">
+            <option value="Usuario">Usuario</option>
+            <option value="Admin">Admin</option>
+          </select>
+          <label for="newEmpresa">Empresa:</label>
+          <select id="newEmpresa" style="width:100%;margin-bottom:8px;"></select>
+          <button type="submit" style="width:100%;">Registrar</button>
+          <div id="registerError" style="color:red;display:none;margin-top:8px;"></div>
+        </form>
+        <hr />
+        <h4>🔒 Gestión de roles y permisos</h4>
+        <div id="rolesGestionPanel" style="margin-bottom:18px;"></div>
+                      <div id="empresasGestionPanel" style="margin-bottom:18px; padding:12px; background:#f5f5f5; border-radius:8px;">
+                        <h5 style="margin-bottom:8px; color:#1976d2; font-weight:600;">Empresas / Roles disponibles</h5>
+                        <form id="formNuevaEmpresa" style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
+                          <input type="text" id="nombreEmpresaNueva" required style="flex:1;padding:8px;border-radius:6px;border:1px solid #ccc;background:#fff;" placeholder="Nombre de empresa..." />
+                          <button type="submit" class="boton-crear" style="padding:8px 16px;">Agregar</button>
+                        </form>
+                        <ul id="listaEmpresas" style="list-style:none;padding:0;margin:0;"></ul>
+                      </div>
+              <div id="formCargarImagenPlanilla" style="margin-bottom:18px; padding:12px; background:#f5f5f5; border-radius:8px;">
+                <h5 style="margin-bottom:8px; color:#1976d2; font-weight:600;">Cargar nueva imagen en planillas</h5>
+                <form id="formNuevaImagenPlanilla" style="display:flex;flex-direction:column;gap:10px;">
+                  <label style="font-size:13px;font-weight:500;">Seleccionar imagen:</label>
+                  <input type="file" id="inputImagenPlanilla" accept="image/*" required style="padding:8px;border-radius:6px;border:1px solid #ccc;background:#fff;" />
+                  <label style="font-size:13px;font-weight:500;">Nombre de la imagen:</label>
+                  <input type="text" id="nombreImagenPlanilla" required style="width:100%;padding:8px;border-radius:6px;border:1px solid #ccc;background:#fff;" placeholder="Ej: esquema nuevo.png" />
+                  <label style="font-size:13px;font-weight:500;">Empresa asignada:</label>
+                  <select id="empresaImagenPlanilla" required style="width:100%;padding:8px;border-radius:6px;border:1px solid #ccc;background:#fff;"></select>
+                  <button type="submit" class="boton-crear" style="width:100%;margin-top:8px;">Subir imagen y asignar roles</button>
+                  <div id="errorImagenPlanilla" style="color:#d32f2f;display:none;margin-top:8px;font-weight:500;"></div>
+                </form>
+              </div>
+      </div>
+
+    <!-- Panel cargar línea -->
+    <div id="menuFlotante" class="panel-lateral oculto">
+      <h4>📐 Cargar Esquema</h4>
+      <div id="esquemasDisponibles" style="margin-bottom:16px;"></div>
+      <div class="upload-area">
+        <label for="lineaInput" class="upload-label">
+          <div class="upload-icon">📁</div>
+          <div class="upload-text">
+            <span class="upload-title">Seleccionar imagen</span>
+            <span class="upload-subtitle">PNG, JPG, JPEG</span>
+          </div>
+        </label>
+        <input type="file" id="lineaInput" accept="image/*" multiple class="input-file-hidden" />
+      </div>
+      <p id="lineaEstado" class="archivo-estado">No se ha seleccionado ninguna imagen</p>
+      <div id="vistaPrevia" class="vista-previa-container"></div>
+    </div>
+
+    <!-- Panel de configuración -->
+    <div id="configMenu" class="panel-lateral oculto">
+      <h4>⚙️ Configuración</h4>
+
+      <label for="logoLeftInput">Logo izquierdo</label>
+      <input type="file" id="logoLeftInput" accept="image/*" />
+      <img id="previewLogoLeft" class="imagen-previa" style="max-height:40px; display:block; margin:4px 0 8px 0;" />
+
+      <label for="logoRightInput">Logo derecho</label>
+      <input type="file" id="logoRightInput" accept="image/*" />
+      <img id="previewLogoRight" class="imagen-previa" style="max-height:40px; display:block; margin:4px 0 8px 0;" />
+
+      <div style="display:flex;gap:6px;margin-bottom:8px;">
+        <button id="uploadLogosBtn" class="boton-crear" style="flex:1;padding:6px 8px;font-size:12px;">Subir logos</button>
+        <input type="file" id="bulkLogoInput" accept="image/*" multiple style="display:none;" />
+      </div>
+
+      <div style="display:flex;gap:6px;margin-bottom:8px;">
+        <button id="removeLogosBtn" class="boton-secundario" style="flex:1;padding:6px 8px;font-size:12px;">Quitar</button>
+        <button id="restoreLogosBtn" class="boton-secundario" style="flex:1;padding:6px 8px;font-size:12px;">Restaurar</button>
+      </div>
+
+      <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:13px;"><input type="checkbox" id="showNumbersInput" checked /> Mostrar números</label>
+
+      <hr style="margin:12px 0; border:none; border-top:1px solid #ddd;" />
+      
+      <h4 style="margin-bottom:8px; font-size:14px;">📋 Datos del Encabezado</h4>
+      
+      <label for="configPiloto">Piloto ROV:</label>
+      <input type="text" id="configPiloto" placeholder="Ej: Ronald Yañez" style="width:100%; padding:6px; margin-bottom:8px; border:1px solid #ccc; border-radius:4px; font-size:13px;" />
+      
+      <label for="configFecha">Fecha:</label>
+      <input type="text" id="configFecha" placeholder="Ej: 29-10-2025" style="width:100%; padding:6px; margin-bottom:8px; border:1px solid #ccc; border-radius:4px; font-size:13px;" />
+      
+      <label for="configCentro">Centro de Cultivo:</label>
+      <input type="text" id="configCentro" placeholder="Ej: Centro Acuícola Norte" style="width:100%; padding:6px; margin-bottom:12px; border:1px solid #ccc; border-radius:4px; font-size:13px;" />
+
+      <hr style="margin:12px 0; border:none; border-top:1px solid #ddd;" />
+      
+      <h4 style="margin-bottom:8px; font-size:14px; color:#1976d2; font-weight:600;">📑 Plantillas de Bitácora</h4>
+      
+      <button id="guardarPlantilla" class="boton-config" style="width:100%; padding:10px; font-size:13px; margin-bottom:8px; background:#1976d2; color:white; border:none; border-radius:6px; font-weight:500; cursor:pointer; transition:all 0.2s;">💾 Guardar como Plantilla</button>
+      
+      <button id="cargarPlantilla" class="boton-config" style="width:100%; padding:10px; font-size:13px; margin-bottom:8px; background:#1976d2; color:white; border:none; border-radius:6px; font-weight:500; cursor:pointer; transition:all 0.2s;">📋 Cargar Plantilla</button>
+      
+      <button id="gestionarPlantillas" class="boton-config" style="width:100%; padding:10px; font-size:13px; margin-bottom:12px; background:#1976d2; color:white; border:none; border-radius:6px; font-weight:500; cursor:pointer; transition:all 0.2s;">⚙️ Gestionar Plantillas</button>
+      
+      <hr style="margin:12px 0; border:none; border-top:1px solid #ddd;" />
+      
+      <h4 style="margin-bottom:8px; font-size:14px; color:#1976d2; font-weight:600;">📱 Modo Offline</h4>
+      
+      <button id="verEstadoCache" class="boton-config" style="width:100%; padding:10px; font-size:13px; margin-bottom:8px; background:#1976d2; color:white; border:none; border-radius:6px; font-weight:500; cursor:pointer; transition:all 0.2s;">📊 Estado de Caché</button>
+      
+      <button id="limpiarCachePWA" class="boton-config" style="width:100%; padding:10px; font-size:13px; margin-bottom:12px; background:#1976d2; color:white; border:none; border-radius:6px; font-weight:500; cursor:pointer; transition:all 0.2s;">🗑️ Limpiar Caché</button>
+      
+      <hr style="margin:12px 0; border:none; border-top:1px solid #ddd;" />
+      
+      <h4 style="margin-bottom:8px; font-size:14px; color:#1976d2; font-weight:600;">🔄 Sincronización</h4>
+      
+      <button id="verEstadoSync" class="boton-config" style="width:100%; padding:10px; font-size:13px; margin-bottom:8px; background:#1976d2; color:white; border:none; border-radius:6px; font-weight:500; cursor:pointer; transition:all 0.2s; position:relative;">
+        📊 Estado de Sincronización
+        <span id="contadorColaSinc" style="display:none; position:absolute; top:6px; right:10px; background:#ef5350; color:white; font-size:10px; font-weight:bold; padding:3px 7px; border-radius:10px; min-width:18px; text-align:center; box-shadow:0 2px 4px rgba(0,0,0,0.2);">0</span>
+      </button>
+      
+      <button id="forzarSync" class="boton-config" style="width:100%; padding:10px; font-size:13px; margin-bottom:8px; background:#1976d2; color:white; border:none; border-radius:6px; font-weight:500; cursor:pointer; transition:all 0.2s;">📤 Sincronizar Ahora</button>
+      
+      <button id="limpiarColaSync" class="boton-config" style="width:100%; padding:10px; font-size:13px; margin-bottom:12px; background:#1976d2; color:white; border:none; border-radius:6px; font-weight:500; cursor:pointer; transition:all 0.2s;">🗑️ Limpiar Cola</button>
+      
+      <hr style="margin:12px 0; border:none; border-top:1px solid #ddd;" />
+      
+      <h4 style="margin-bottom:8px; font-size:14px; color:#1976d2; font-weight:600;">🛠️ Mantenimiento</h4>
+      
+      <button id="exportarBackup" class="boton-config" style="width:100%; padding:10px; font-size:13px; margin-bottom:8px; background:#1976d2; color:white; border:none; border-radius:6px; font-weight:500; cursor:pointer; transition:all 0.2s;">💾 Descargar Backup</button>
+      
+      <button id="importarBackup" class="boton-config" style="width:100%; padding:10px; font-size:13px; margin-bottom:8px; background:#1976d2; color:white; border:none; border-radius:6px; font-weight:500; cursor:pointer; transition:all 0.2s;">📂 Restaurar Backup</button>
+      
+      <button id="reiniciarBitacora" class="boton-config-danger" style="width:100%; padding:10px; font-size:13px; margin-bottom:8px; background:#f5f5f5; color:#d32f2f; border:1px solid #e0e0e0; border-radius:6px; font-weight:500; cursor:pointer; transition:all 0.2s;">🔄 Reiniciar Bitácora</button>
+      <input type="file" id="inputBackup" accept=".json" style="display:none;" />
+
+      <div style="display:flex;gap:8px;justify-content:flex-end;position:sticky;bottom:0;background:#fff;padding-top:8px;margin-top:12px;border-top:1px solid #eee;">
+        <button id="aplicarConfig" class="boton-crear" style="padding:8px 16px;font-size:13px;">Aplicar</button>
+        <button id="guardarConfig" class="boton-secundario" style="padding:8px 16px;font-size:13px;">Guardar</button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Overlay para cerrar paneles -->
+  <div id="overlayPanel" class="overlay-panel oculto"></div>
+  
+  <!-- Indicador de estado offline/online -->
+  <div id="offlineIndicator" class="offline-indicator oculto">
+    <span class="offline-icon">⚠️</span>
+    <span class="offline-text">Modo Offline</span>
+  </div>
+  
+  <!-- Panel de estado PWA -->
+  <div id="pwaStatus" class="pwa-status oculto">
+    <div class="pwa-content">
+      <span class="pwa-icon">📦</span>
+      <span class="pwa-text">Aplicación lista para usar offline</span>
+      <button id="closePwaStatus" class="pwa-close">✕</button>
+    </div>
+  </div>
+
+  <!-- Formulario de Login -->
+  <section id="loginSection" class="login-section" style="max-width:400px;margin:40px auto;box-shadow:0 2px 8px #0002;padding:32px 24px;border-radius:12px;background:#fff;">
+    <div class="login-container">
+      <h2 style="text-align:center;margin-bottom:18px;">Iniciar sesión</h2>
+      <form id="loginForm">
+        <label for="loginUser">Usuario:</label>
+        <input type="text" id="loginUser" required style="width:100%;margin-bottom:10px;" />
+        <label for="loginPass">Contraseña:</label>
+        <input type="password" id="loginPass" required style="width:100%;margin-bottom:10px;" />
+        <button type="submit" style="width:100%;margin-top:10px;">Entrar</button>
+        <div id="loginError" style="color:red;display:none;margin-top:8px;"></div>
+      </form>
+    </div>
+  </section>
+
+  <main class="contenido-principal" id="mainContent" style="display:none;">
+   <section class="hoja-indice">
+  <div class="encabezado-hoja">
+    <div class="encabezado-fila">
+      <img src="assets/logo-izquierdo.png" class="logo-izq" id="logoIzq" alt="Logo Izquierdo" />
+      <div class="encabezado-texto">
+        <h1>Bitácora diaria de trabajo</h1>
+      </div>
+      <img src="assets/logo-derecho.png" class="logo-der" id="logoDer" alt="Logo Derecho" />
+    </div>
+  </div>
+
+  <!-- ✅ Contenedor centrado -->
+  <div class="contenido-hoja">
+    <div class="datos-bitacora">
+      <h3>DATOS</h3>
+      <div class="formulario-datos">
+        <!-- Columna izquierda -->
+        <div class="columna">
+          <div class="fila"><label>Nombre del Operador:</label><input type="text" id="operadorInput" readonly style="background-color: #f0f0f0; cursor: not-allowed;"></div>
+          <div class="fila"><label>Empresa Mandante:</label><input type="text" id="empresaInput"></div>
+          <div class="fila"><label>Equipo Empleado:</label><input type="text" id="equipoInput"></div>
+          <div class="fila"><label>Hora de Inicio:</label><input type="time" id="inicioInput"></div>
+          <div class="fila"><label>Hora Final:</label><input type="time" id="finalInput"></div>
+        </div>
+
+        <!-- Columna derecha -->
+        <div class="columna">
+          <div class="fila"><label>Área:</label><input type="text" id="areaInput"></div>
+          <div class="fila"><label>Centro de Cultivo:</label><input type="text" id="centroInput" readonly style="background-color: #f0f0f0; cursor: not-allowed;"></div>
+          <div class="fila"><label>Encargado de Centro:</label><input type="text" id="encargadoInput"></div>
+          <div class="fila"><label>Condición de Puerto:</label><input type="text" id="puertoInput"></div>
+          <div class="fila"><label>Dimensiones de Jaulas:</label><input type="text" id="dimensionesInput"></div>
+          <div class="fila"><label>N° de Jaulas:</label><input type="number" id="jaulasInput"></div>
+        </div>
+      </div>
+
+      <h3>DETALLES DE LA FAENA</h3>
+      <div class="detalle-faena">
+        <textarea id="faenaInput" placeholder="Describe aquí los detalles de la faena..."></textarea>
+      </div>
+    </div>
+  </div>
+
+
+</section>
+
+    <section id="panelLineas">
+      <!-- Aquí se agregarán dinámicamente las hojas de fotos al cargar líneas -->
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+  <script src="scripts/main.js"></script>
+</body>
+</html>
