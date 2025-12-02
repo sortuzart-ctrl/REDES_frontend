@@ -911,6 +911,52 @@ async function updateInformeIndexedDB(timestamp, cambios) {
   });
 }
 
+// Actualizar bitácora de un informe aplicando reparaciones desde recordatorios
+async function aplicarReparacionesEnInforme(timestamp, opciones) {
+  const { repararRoturas, repararAnomalias } = opciones || {};
+  if (!repararRoturas && !repararAnomalias) return;
+
+  const informe = await getInformeByTimestampIndexedDB(timestamp);
+  if (!informe || !informe.contenido) return;
+
+  const tempDiv = document.createElement('div');
+  tempDiv.innerHTML = informe.contenido;
+
+  const tabla = tempDiv.querySelector('.tabla-bitacora tbody');
+  if (!tabla) return;
+
+  // Recorremos todas las filas y aplicamos la lógica de "pendiente pasa a reparada"
+  tabla.querySelectorAll('tr').forEach(fila => {
+    const celdas = fila.querySelectorAll('td');
+    if (celdas.length < 9) return;
+
+    if (repararRoturas) {
+      const rotRepCelda = celdas[4];
+      const rotPenCelda = celdas[5];
+      const rotRep = parseInt(rotRepCelda.textContent.trim()) || 0;
+      const rotPen = parseInt(rotPenCelda.textContent.trim()) || 0;
+      if (rotPen > 0) {
+        rotRepCelda.textContent = String(rotRep + rotPen);
+        rotPenCelda.textContent = '0';
+      }
+    }
+
+    if (repararAnomalias) {
+      const objRepCelda = celdas[7];
+      const objPenCelda = celdas[8];
+      const objRep = parseInt(objRepCelda.textContent.trim()) || 0;
+      const objPen = parseInt(objPenCelda.textContent.trim()) || 0;
+      if (objPen > 0) {
+        objRepCelda.textContent = String(objRep + objPen);
+        objPenCelda.textContent = '0';
+      }
+    }
+  });
+
+  // Guardar cambios en IndexedDB manteniendo mismo timestamp
+  await updateInformeIndexedDB(timestamp, { contenido: tempDiv.innerHTML });
+}
+
 // Settings (persistidos en localStorage)
 const DEFAULT_SETTINGS = { 
   defaultColor: '#1976d2', 
@@ -946,6 +992,8 @@ function saveSettings() {
     const hoja = document.createElement('div');
     hoja.className = 'hoja-bitacora hoja-fotos';
     hoja.id = 'bitacora-principal';
+    hoja.style.transform = 'scale(0.98)';
+    hoja.style.transformOrigin = 'top center';
     // encabezado usando settings (si existen) o assets por defecto
     const encabezado = document.createElement('div');
     encabezado.className = 'encabezado-hoja';
@@ -989,7 +1037,9 @@ function saveSettings() {
             ${Array.from({ length: 15 }).map((_, i) => `
               <tr>
                 <td class="numero-dia">${i + 1}</td>
-                <td contenteditable="true" class="editable-cell" data-col="fecha"></td>
+                <td data-col="fecha">
+                  <input type="date" class="fecha-bitacora" style="width:100%; box-sizing:border-box; border:none; padding:4px;" />
+                </td>
                 <td contenteditable="true" class="editable-cell" data-col="area"></td>
                 <td contenteditable="true" class="editable-cell" data-col="rot_informadas"></td>
                 <td contenteditable="true" class="editable-cell" data-col="rot_reparadas"></td>
@@ -1079,6 +1129,8 @@ function saveSettings() {
     addBitacoraBtn.addEventListener('click', () => {
       const hoja = document.createElement('div');
       hoja.className = 'hoja-bitacora hoja-fotos';
+      hoja.style.transform = 'scale(0.98)';
+      hoja.style.transformOrigin = 'top center';
 
       const encabezado = document.createElement('div');
       encabezado.className = 'encabezado-hoja';
@@ -2036,23 +2088,10 @@ crearInforme.addEventListener('click', () => {
       return;
     }
     
-    // Obtener la posición relativa al wrapper de la imagen
+    // Obtener la posición relativa al wrapper de la imagen usando coordenadas de pantalla
     const rect = imagenWrapper.getBoundingClientRect();
-    
-    // Usar offsetX y offsetY que son relativos al elemento clickeado
-    let x = e.offsetX;
-    let y = e.offsetY;
-    
-    // Si el click fue en la imagen, ajustar al wrapper
-    if (e.target.classList.contains('linea-imagen')) {
-      // offsetX/Y ya es correcto para la imagen
-      x = e.offsetX;
-      y = e.offsetY;
-    }
-    
-    console.log('Click en:', e.clientX, e.clientY);
-    console.log('Offset:', e.offsetX, e.offsetY);
-    console.log('Posición calculada:', x, y);
+    const x = (e.clientX - rect.left) / rect.width * imagenWrapper.offsetWidth;
+    const y = (e.clientY - rect.top) / rect.height * imagenWrapper.offsetHeight;
 
     const numeroAsignado = numerosDisponibles.length > 0
       ? numerosDisponibles.shift()
@@ -2060,6 +2099,7 @@ crearInforme.addEventListener('click', () => {
 
     const grupoNumero = document.createElement('div');
     grupoNumero.className = 'grupo-numero';
+    // Colocar el número exactamente en el punto clicado (corregido por zoom/escala)
     grupoNumero.style.left = `${x}px`;
     grupoNumero.style.top = `${y}px`;
 
@@ -2142,14 +2182,55 @@ function guardarBitacora() {
   if (tablaBitacora) {
     const filas = [];
     tablaBitacora.querySelectorAll('tr').forEach(tr => {
-      const celdas = Array.from(tr.querySelectorAll('td')).map(td => {
-        // Capturar textContent o innerText de las celdas editables
-        return td.textContent.trim();
+      const celdas = [];
+      tr.querySelectorAll('td').forEach((td, idx) => {
+        if (idx === 1) {
+          // Columna fecha (input date)
+          const inputFecha = td.querySelector('input.fecha-bitacora');
+          celdas.push(inputFecha ? inputFecha.value : td.textContent.trim());
+        } else {
+          celdas.push(td.textContent.trim());
+        }
       });
       filas.push(celdas);
     });
     localStorage.setItem('bitacoraGuardada', JSON.stringify(filas));
     console.log('Bitácora guardada:', filas); // Debug
+  }
+}
+
+// Bloquear filas de bitácora ya usadas y dejar libre la siguiente
+function bloquearFilasBitacoraUsadas() {
+  const tablaBitacora = document.querySelector('.tabla-bitacora tbody');
+  if (!tablaBitacora) return;
+
+  const filas = Array.from(tablaBitacora.querySelectorAll('tr'));
+  let ultimaFilaConDatos = -1;
+
+  filas.forEach((tr, index) => {
+    const celdas = tr.querySelectorAll('td');
+    const area = celdas[2]?.textContent.trim();
+    const rotInf = celdas[3]?.textContent.trim();
+    const objInf = celdas[6]?.textContent.trim();
+    const tieneDatos = !!(area || rotInf || objInf);
+
+    if (tieneDatos) {
+      ultimaFilaConDatos = index;
+      tr.classList.add('fila-bloqueada');
+      tr.querySelectorAll('.editable-cell').forEach(td => {
+        td.setAttribute('contenteditable', 'false');
+      });
+    }
+  });
+
+  // Desbloquear solo la fila siguiente a la última con datos (si existe)
+  const siguienteIndex = ultimaFilaConDatos + 1;
+  if (siguienteIndex >= 0 && siguienteIndex < filas.length) {
+    const filaSiguiente = filas[siguienteIndex];
+    filaSiguiente.classList.remove('fila-bloqueada');
+    filaSiguiente.querySelectorAll('.editable-cell').forEach(td => {
+      td.setAttribute('contenteditable', 'true');
+    });
   }
 }
 
@@ -2510,9 +2591,16 @@ function restaurarBitacora() {
         tablaBitacora.querySelectorAll('tr').forEach((tr, idx) => {
           if (filas[idx]) {
             tr.querySelectorAll('td').forEach((td, colIdx) => {
-              if (filas[idx][colIdx] && filas[idx][colIdx].trim() !== '') {
-                td.textContent = filas[idx][colIdx];
-                td.setAttribute('data-value', filas[idx][colIdx]);
+              const valor = filas[idx][colIdx];
+              if (colIdx === 1) {
+                // Columna fecha con input date
+                const inputFecha = td.querySelector('input.fecha-bitacora');
+                if (inputFecha && valor) {
+                  inputFecha.value = valor;
+                }
+              } else if (valor && valor.trim() !== '') {
+                td.textContent = valor;
+                td.setAttribute('data-value', valor);
               }
             });
           }
@@ -2632,7 +2720,19 @@ async function guardarInformeDiario() {
     if (!nombreInforme) return;
 
     // Comprimir contenido antes de guardar
-    let contenidoAGuardar = panelLineas.innerHTML;
+    // Asegurar que la bitácora principal siempre se incluya en el contenido guardado
+    let contenidoAGuardar = '';
+    try {
+      const panelClonado = panelLineas.cloneNode(true);
+      const bitacoraPrincipal = document.getElementById('bitacora-principal');
+      if (bitacoraPrincipal && !panelClonado.querySelector('#bitacora-principal')) {
+        panelClonado.appendChild(bitacoraPrincipal.cloneNode(true));
+      }
+      contenidoAGuardar = panelClonado.innerHTML;
+    } catch (e) {
+      console.error('Error al clonar panelLineas, usando innerHTML directo', e);
+      contenidoAGuardar = panelLineas.innerHTML;
+    }
     
     // Comprimir imágenes base64 si son muy grandes
     const tempDiv = document.createElement('div');
@@ -2673,6 +2773,8 @@ async function guardarInformeDiario() {
       alert(`✅ Informe "${nombreInforme}" guardado exitosamente`);
 
       // No limpiar el contenido, mantener todo visible incluyendo la bitácora
+      // Bloquear filas ya utilizadas y dejar libre la siguiente para el próximo informe
+      bloquearFilasBitacoraUsadas();
     } catch (e) {
       console.error(e);
       alert('❌ Error al guardar el informe en almacenamiento interno. Intenta nuevamente o exporta a PDF.');
@@ -2746,20 +2848,16 @@ function restaurarEventListenersInforme() {
         return;
       }
       
-      // Obtener la posición relativa al wrapper de la imagen
-      let x = e.offsetX;
-      let y = e.offsetY;
-      
-      // Si el click fue en la imagen, ajustar al wrapper
-      if (e.target.classList.contains('linea-imagen')) {
-        x = e.offsetX;
-        y = e.offsetY;
-      }
+      // Obtener la posición relativa al wrapper de la imagen usando coordenadas normalizadas
+      const rect = imagenWrapper.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / rect.width * imagenWrapper.offsetWidth;
+      const y = (e.clientY - rect.top) / rect.height * imagenWrapper.offsetHeight;
 
       const numeroAsignado = contadorLocal++;
 
       const grupoNumero = document.createElement('div');
       grupoNumero.className = 'grupo-numero';
+      // Colocar el número exactamente en el punto clicado (corregido por zoom/escala)
       grupoNumero.style.left = `${x}px`;
       grupoNumero.style.top = `${y}px`;
 
@@ -2975,6 +3073,7 @@ function analizarDatosInformes(informes) {
     anomaliasReparadas: 0,
     anomaliasPendientes: 0,
     areasMasProblematicas: [],
+    detallePorArea: {},
     tendenciaDias: [],
     promedioRoturas: 0
   };
@@ -2992,7 +3091,13 @@ function analizarDatosInformes(informes) {
       tabla.querySelectorAll('tr').forEach(fila => {
         const celdas = fila.querySelectorAll('td');
         if (celdas.length >= 9) {
-          const fecha = celdas[1].textContent.trim();
+          let fecha = '';
+          const fechaInput = celdas[1].querySelector('input[type="date"]');
+          if (fechaInput) {
+            fecha = fechaInput.value || fechaInput.textContent.trim();
+          } else {
+            fecha = celdas[1].textContent.trim();
+          }
           const area = celdas[2].textContent.trim();
           const rotInf = parseInt(celdas[3].textContent.trim()) || 0;
           const rotRep = parseInt(celdas[4].textContent.trim()) || 0;
@@ -3009,9 +3114,26 @@ function analizarDatosInformes(informes) {
             stats.anomaliasReparadas += objRep;
             stats.anomaliasPendientes += objPen;
             
-            // Contabilizar áreas
+            // Contabilizar áreas (totales y detalle)
             if (area) {
               areasMap[area] = (areasMap[area] || 0) + rotInf + objInf;
+              if (!stats.detallePorArea[area]) {
+                stats.detallePorArea[area] = {
+                  rotInf: 0,
+                  rotRep: 0,
+                  rotPen: 0,
+                  objInf: 0,
+                  objRep: 0,
+                  objPen: 0
+                };
+              }
+              const det = stats.detallePorArea[area];
+              det.rotInf += rotInf;
+              det.rotRep += rotRep;
+              det.rotPen += rotPen;
+              det.objInf += objInf;
+              det.objRep += objRep;
+              det.objPen += objPen;
             }
             
             // Tendencia por fecha
@@ -3060,7 +3182,11 @@ function actualizarBadgeRecordatorios() {
   if (!badgeRecordatorios) return;
   
   const recordatorios = obtenerRecordatorios();
-  const activos = recordatorios.filter(r => !r.completado);
+  const activos = recordatorios.filter(r => {
+    const tieneRoturaPend = (r.roturasP || 0) > 0 && !r.roturaCompletada;
+    const tieneAnomPend = (r.anomaliasP || 0) > 0 && !r.anomaliaCompletada;
+    return tieneRoturaPend || tieneAnomPend;
+  });
   
   if (activos.length > 0) {
     badgeRecordatorios.textContent = activos.length;
@@ -3076,6 +3202,8 @@ async function generarRecordatoriosAutomaticos() {
   const recordatoriosExistentes = obtenerRecordatorios();
   const nuevosRecordatorios = [];
   
+  console.log('🔎 Escaneando informes para recordatorios. Índice:', indice);
+
   for (const item of indice) {
     // Intentar obtener el informe completo desde IndexedDB
     let informe = null;
@@ -3119,13 +3247,22 @@ async function generarRecordatoriosAutomaticos() {
     
     const tabla = tempDiv.querySelector('.tabla-bitacora tbody');
     if (tabla) {
+      console.log('📄 Analizando bitácora de informe', informe.nombre);
       tabla.querySelectorAll('tr').forEach(fila => {
         const celdas = fila.querySelectorAll('td');
         if (celdas.length >= 9) {
-          const fecha = celdas[1].textContent.trim();
+          let fecha = '';
+          const fechaInput = celdas[1].querySelector('input[type="date"]');
+          if (fechaInput) {
+            fecha = fechaInput.value || fechaInput.textContent.trim();
+          } else {
+            fecha = celdas[1].textContent.trim();
+          }
           const area = celdas[2].textContent.trim();
           const rotPen = parseInt(celdas[5].textContent.trim()) || 0;
           const objPen = parseInt(celdas[8].textContent.trim()) || 0;
+
+          console.log('  • Fila bitácora -> fecha:', fecha, 'área:', area, 'rotPen:', rotPen, 'objPen:', objPen);
           
           if (rotPen > 0 || objPen > 0) {
             const recordatorioId = `${informe.nombre}-${area}-${fecha}`;
@@ -3143,8 +3280,11 @@ async function generarRecordatoriosAutomaticos() {
                 roturasP: rotPen,
                 anomaliasP: objPen,
                 informe: informe.nombre,
+                timestamp: informe.timestamp,
                 creado: new Date().toISOString(),
-                completado: false,
+                // estados independientes
+                roturaCompletada: false,
+                anomaliaCompletada: false,
                 prioridad: (rotPen + objPen) > 5 ? 'alta' : (rotPen + objPen) > 2 ? 'media' : 'baja'
               });
             }
@@ -3174,14 +3314,39 @@ function verPanelRecordatorios() {
   
   function renderizarRecordatorios() {
     const recordatoriosActualizados = obtenerRecordatorios();
-    const activos = recordatoriosActualizados.filter(r => !r.completado);
-    const completados = recordatoriosActualizados.filter(r => r.completado);
+    const activos = recordatoriosActualizados.filter(r => {
+      const tieneRoturaPend = (r.roturasP || 0) > 0 && !r.roturaCompletada;
+      const tieneAnomPend = (r.anomaliasP || 0) > 0 && !r.anomaliaCompletada;
+      return tieneRoturaPend || tieneAnomPend;
+    });
+    const completados = recordatoriosActualizados.filter(r => !((r.roturasP || 0) > 0 && !r.roturaCompletada) && !((r.anomaliasP || 0) > 0 && !r.anomaliaCompletada));
+
+    const totalRoturasPend = activos.reduce((acc, r) => acc + (r.roturasP || 0), 0);
+    const totalAnomaliasPend = activos.reduce((acc, r) => acc + (r.anomaliasP || 0), 0);
     
     contenido.innerHTML = `
       <h2 style="margin:0 0 24px 0; color:#1976d2; display:flex; align-items:center; gap:12px;">
         <span style="font-size:32px;">🔔</span>
         Recordatorios de Reparaciones
       </h2>
+
+      <!-- Dashboard de pendientes -->
+      <div style="display:flex; gap:16px; margin-bottom:20px; flex-wrap:wrap;">
+        <div style="flex:1 1 200px; background:#fff3e0; border-radius:10px; padding:14px 16px; border:1px solid #ffe0b2; display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <div style="font-size:13px; color:#f57c00; font-weight:600;">Roturas pendientes</div>
+            <div style="font-size:22px; font-weight:700; color:#e65100;">${totalRoturasPend}</div>
+          </div>
+          <button id="btnRepararRoturas" style="padding:8px 12px; background:#ef6c00; color:#fff; border:none; border-radius:6px; cursor:pointer; font-size:12px; font-weight:600; white-space:nowrap;">🔧 Reparar roturas</button>
+        </div>
+        <div style="flex:1 1 200px; background:#e3f2fd; border-radius:10px; padding:14px 16px; border:1px solid #bbdefb; display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <div style="font-size:13px; color:#1565c0; font-weight:600;">Anomalías pendientes</div>
+            <div style="font-size:22px; font-weight:700; color:#0d47a1;">${totalAnomaliasPend}</div>
+          </div>
+          <button id="btnRepararAnomalias" style="padding:8px 12px; background:#1976d2; color:#fff; border:none; border-radius:6px; cursor:pointer; font-size:12px; font-weight:600; white-space:nowrap;">⚙️ Reparar anomalías</button>
+        </div>
+      </div>
       
       <!-- Filtros -->
       <div style="margin-bottom:16px;">
@@ -3193,18 +3358,88 @@ function verPanelRecordatorios() {
         <button id="cerrarRecordatorios" style="padding:10px 20px; background:#757575; color:white; border:none; border-radius:6px; cursor:pointer; font-size:14px; font-weight:600;">✖️ Cerrar</button>
       </div>
       
-      <div id="listaRecordatorios" style="display:flex; flex-direction:column; gap:12px; margin-bottom:20px;">
-        ${activos.length === 0 ? `
-          <div style="text-align:center; padding:40px 20px; color:#999;">
-            <div style="font-size:48px; margin-bottom:12px;">✅</div>
-            <div style="font-size:16px;">No hay recordatorios pendientes</div>
-            <div style="font-size:14px; margin-top:8px;">Haz clic en "Escanear Informes" para buscar reparaciones pendientes</div>
-          </div>
-        ` : activos.map(r => crearHTMLRecordatorio(r)).join('')}
+      <div id="listaRecordatorios" style="display:flex; flex-direction:column; gap:16px; margin-bottom:20px;">
+        <div>
+          <h3 style="margin:0 0 8px 0; font-size:15px; color:#333;">Pendientes</h3>
+          ${activos.length === 0 ? `
+            <div style="text-align:center; padding:24px 16px; color:#999; border:1px dashed #ccc; border-radius:8px;">
+              <div style="font-size:32px; margin-bottom:8px;">✅</div>
+              <div style="font-size:14px;">No hay recordatorios pendientes</div>
+              <div style="font-size:13px; margin-top:4px;">Usa "Generar Nuevos" para buscar reparaciones pendientes</div>
+            </div>
+          ` : `<div style="display:flex; flex-direction:column; gap:8px;">${activos.map(r => crearHTMLRecordatorio(r)).join('')}</div>`}
+        </div>
+
+        <div>
+          <h3 style="margin:12px 0 8px 0; font-size:15px; color:#666;">Completados</h3>
+          ${completados.length === 0 ? `
+            <div style="font-size:13px; color:#aaa; padding:4px 2px;">Aún no hay recordatorios completados.</div>
+          ` : `<div style="display:flex; flex-direction:column; gap:6px; max-height:160px; overflow-y:auto; border:1px solid #eee; border-radius:8px; padding:8px; background:#fafafa;">${completados.map(r => crearHTMLRecordatorio(r)).join('')}</div>`}
+        </div>
       </div>
       
       <button id="cerrarRecordatorios" style="width:100%; padding:12px; background:#757575; color:white; border:none; border-radius:6px; cursor:pointer; font-size:14px; font-weight:600;">✖️ Cerrar</button>
     `;
+
+    // Acciones de dashboard
+    const btnRepararRoturas = contenido.querySelector('#btnRepararRoturas');
+    if (btnRepararRoturas) {
+      btnRepararRoturas.addEventListener('click', () => {
+        const recs = obtenerRecordatorios();
+        let modificados = 0;
+        const timestampsAReparar = new Set();
+
+        recs.forEach(r => {
+          if ((r.roturasP || 0) > 0 && !r.roturaCompletada && r.timestamp) {
+            r.roturaCompletada = true;
+            modificados++;
+            timestampsAReparar.add(r.timestamp);
+          }
+        });
+
+        if (modificados > 0) {
+          // Aplicar reparaciones en cada informe afectado
+          timestampsAReparar.forEach(ts => {
+            aplicarReparacionesEnInforme(ts, { repararRoturas: true, repararAnomalias: false }).catch(e => console.error('Error aplicando reparaciones de roturas en informe', e));
+          });
+
+          guardarRecordatorios(recs);
+          mostrarNotificacion(`✅ Se marcaron todas las roturas pendientes como reparadas`, 3000);
+          renderizarRecordatorios();
+        } else {
+          mostrarNotificacion('ℹ️ No hay roturas pendientes para marcar como reparadas', 2500);
+        }
+      });
+    }
+
+    const btnRepararAnomalias = contenido.querySelector('#btnRepararAnomalias');
+    if (btnRepararAnomalias) {
+      btnRepararAnomalias.addEventListener('click', () => {
+        const recs = obtenerRecordatorios();
+        let modificados = 0;
+        const timestampsAReparar = new Set();
+
+        recs.forEach(r => {
+          if ((r.anomaliasP || 0) > 0 && !r.anomaliaCompletada && r.timestamp) {
+            r.anomaliaCompletada = true;
+            modificados++;
+            timestampsAReparar.add(r.timestamp);
+          }
+        });
+
+        if (modificados > 0) {
+          timestampsAReparar.forEach(ts => {
+            aplicarReparacionesEnInforme(ts, { repararRoturas: false, repararAnomalias: true }).catch(e => console.error('Error aplicando reparaciones de anomalías en informe', e));
+          });
+
+          guardarRecordatorios(recs);
+          mostrarNotificacion(`✅ Se marcaron todas las anomalías pendientes como reparadas`, 3000);
+          renderizarRecordatorios();
+        } else {
+          mostrarNotificacion('ℹ️ No hay anomalías pendientes para marcar como reparadas', 2500);
+        }
+      });
+    }
     
     // Event listeners para filtros
     contenido.querySelectorAll('.filtro-btn').forEach(btn => {
@@ -3226,8 +3461,8 @@ function verPanelRecordatorios() {
     });
     
     // Botón generar nuevos
-    contenido.querySelector('#generarNuevos').addEventListener('click', () => {
-      const nuevos = generarRecordatoriosAutomaticos();
+    contenido.querySelector('#generarNuevos').addEventListener('click', async () => {
+      const nuevos = await generarRecordatoriosAutomaticos();
       if (nuevos > 0) {
         mostrarNotificacion(`✅ Se generaron ${nuevos} recordatorios nuevos`, 3000);
         renderizarRecordatorios();
@@ -3263,9 +3498,13 @@ function verPanelRecordatorios() {
     let filtrados = [];
     
     if (filtro === 'todos') {
-      filtrados = recordatorios.filter(r => !r.completado);
+      filtrados = recordatorios.filter(r => {
+        const tieneRoturaPend = (r.roturasP || 0) > 0 && !r.roturaCompletada;
+        const tieneAnomPend = (r.anomaliasP || 0) > 0 && !r.anomaliaCompletada;
+        return tieneRoturaPend || tieneAnomPend;
+      });
     } else if (filtro === 'completados') {
-      filtrados = recordatorios.filter(r => r.completado);
+      filtrados = recordatorios.filter(r => !((r.roturasP || 0) > 0 && !r.roturaCompletada) && !((r.anomaliasP || 0) > 0 && !r.anomaliaCompletada));
     } else {
       filtrados = recordatorios.filter(r => !r.completado && r.prioridad === filtro);
     }
@@ -3317,8 +3556,8 @@ function verPanelRecordatorios() {
               📅 ${r.fecha} • 📋 ${r.informe}
             </div>
             <div style="display:flex; gap:16px; font-size:13px;">
-              ${r.roturasP > 0 ? `<span style="color:#f44336; font-weight:600;">🔧 ${r.roturasP} rotura${r.roturasP > 1 ? 's' : ''} pendiente${r.roturasP > 1 ? 's' : ''}</span>` : ''}
-              ${r.anomaliasP > 0 ? `<span style="color:#ff9800; font-weight:600;">⚠️ ${r.anomaliasP} anomalía${r.anomaliasP > 1 ? 's' : ''} pendiente${r.anomaliasP > 1 ? 's' : ''}</span>` : ''}
+              ${ (r.roturasP || 0) > 0 && !r.roturaCompletada ? `<span style="color:#f44336; font-weight:600;">🔧 ${r.roturasP} rotura${r.roturasP > 1 ? 's' : ''} pendiente${r.roturasP > 1 ? 's' : ''}</span>` : ''}
+              ${ (r.anomaliasP || 0) > 0 && !r.anomaliaCompletada ? `<span style="color:#ff9800; font-weight:600;">⚠️ ${r.anomaliasP} anomalía${r.anomaliasP > 1 ? 's' : ''} pendiente${r.anomaliasP > 1 ? 's' : ''}</span>` : ''}
             </div>
             <div style="font-size:12px; color:#999; margin-top:4px;">
               ${r.completado ? `Completado hace ${Math.floor((new Date() - new Date(r.fechaCompletado)) / (1000 * 60 * 60 * 24))} día(s)` : `Creado hace ${diasDesde} día(s)`}
@@ -3375,15 +3614,24 @@ if (verConsolidado) {
   verConsolidado.addEventListener('click', abrirListaInformesGuardados);
 }
 
-// if (verEstadisticas) {
-//   verEstadisticas.addEventListener('click', verEstadisticasInformes);
-// }
+if (verEstadisticas) {
+  verEstadisticas.addEventListener('click', verEstadisticasInformes);
+}
 
 if (verRecordatorios) {
   verRecordatorios.addEventListener('click', verPanelRecordatorios);
 }
 
 window.addEventListener('DOMContentLoaded', () => {
+  // Aplicar zoom inicial al 90% para toda la aplicación
+  try {
+    document.body.style.zoom = '90%';
+  } catch (e) {
+    // fallback para navegadores sin soporte de zoom en body
+    document.body.style.transform = 'scale(0.9)';
+    document.body.style.transformOrigin = 'top left';
+  }
+
   const exportarPDF = document.getElementById('exportarPDF');
   if (exportarPDF) {
     exportarPDF.addEventListener('click', exportarInformeAPDF);
@@ -3396,16 +3644,21 @@ if (nuevoInforme) {
     if (confirm('¿Crear un nuevo informe? Esto limpiará el contenido actual pero mantendrá los datos de la bitácora.')) {
       // Guardar la bitácora actual antes de limpiar
       guardarBitacora();
-      
-      // Limpiar el contenido del panel
-      panelLineas.innerHTML = '';
-      
-      // Recrear la bitácora con los datos guardados
-      asegurarBitacoraAlFinal();
-      
-      // Restaurar los datos de la bitácora
+
+      // Limpiar únicamente las hojas adicionales, manteniendo la bitácora principal
+      const bitacoraPrincipal = document.getElementById('bitacora-principal');
+      if (bitacoraPrincipal) {
+        panelLineas.innerHTML = '';
+        panelLineas.appendChild(bitacoraPrincipal);
+      } else {
+        panelLineas.innerHTML = '';
+        asegurarBitacoraAlFinal();
+      }
+
+      // Restaurar los datos de la bitácora (fechas y valores) y volver a bloquear filas usadas
       setTimeout(() => {
         restaurarBitacora();
+        bloquearFilasBitacoraUsadas();
       }, 100);
       
       // Resetear el modo de edición si estaba activo
@@ -3506,6 +3759,17 @@ async function abrirListaInformesGuardados() {
         panelLineas.innerHTML = informe.contenido;
         restaurarEventListenersInforme();
 
+        // Al editar un informe, permitir editar nuevamente las filas ya usadas
+        const tablaBitacora = document.querySelector('.tabla-bitacora tbody');
+        if (tablaBitacora) {
+          tablaBitacora.querySelectorAll('tr').forEach(tr => {
+            tr.classList.remove('fila-bloqueada');
+            tr.querySelectorAll('.editable-cell').forEach(td => {
+              td.setAttribute('contenteditable', 'true');
+            });
+          });
+        }
+
         // Marcar modo edición
         if (guardarInforme) {
           guardarInforme.dataset.editandoIdx = idx.toString();
@@ -3556,6 +3820,168 @@ async function abrirListaInformesGuardados() {
   } catch (e) {
     console.error(e);
     alert('❌ Error al cargar la lista de informes guardados.');
+  }
+}
+
+// ================== ESTADÍSTICAS DE INFORMES ==================
+async function verEstadisticasInformes() {
+  try {
+    const indice = JSON.parse(localStorage.getItem('informesGuardados') || '[]');
+    if (!indice.length) {
+      alert('No hay informes guardados para calcular estadísticas.');
+      return;
+    }
+
+    // Cargar contenido completo de cada informe desde IndexedDB
+    const informesCompletos = [];
+    for (const item of indice) {
+      if (!item.timestamp) continue;
+      const inf = await getInformeByTimestampIndexedDB(item.timestamp);
+      if (inf && inf.contenido) {
+        inf.fecha = item.fecha;
+        inf.nombre = item.nombre;
+        informesCompletos.push(inf);
+      }
+    }
+
+    if (!informesCompletos.length) {
+      alert('No se pudo leer el contenido de los informes desde IndexedDB.');
+      return;
+    }
+
+    const stats = analizarDatosInformes(informesCompletos);
+
+    const totalIncidencias = stats.totalRoturas + stats.totalAnomalias;
+    const pctRotReparadas = stats.totalRoturas > 0 ? Math.round((stats.roturasReparadas / stats.totalRoturas) * 100) : 0;
+    const pctAnomReparadas = stats.totalAnomalias > 0 ? Math.round((stats.anomaliasReparadas / stats.totalAnomalias) * 100) : 0;
+
+    const modal = document.createElement('div');
+    modal.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:9999; display:flex; align-items:center; justify-content:center; padding:20px;';
+
+    const contenido = document.createElement('div');
+    contenido.style.cssText = 'background:#fff; padding:24px; border-radius:12px; max-width:960px; width:100%; max-height:85vh; overflow:auto; box-shadow:0 4px 16px rgba(0,0,0,0.2);';
+
+    const filasTendencia = (stats.tendenciaDias || []).map(d => `
+      <tr>
+        <td style="padding:4px 8px; border-bottom:1px solid #eee;">${d.fecha}</td>
+        <td style="padding:4px 8px; border-bottom:1px solid #eee; text-align:right;">${d.roturas}</td>
+      </tr>
+    `).join('');
+
+    const filasAreas = (stats.areasMasProblematicas || []).slice(0, 5).map(a => `
+      <tr>
+        <td style="padding:4px 8px; border-bottom:1px solid #eee;">${a.nombre}</td>
+        <td style="padding:4px 8px; border-bottom:1px solid #eee; text-align:right;">${a.incidencias}</td>
+      </tr>
+    `).join('') || '<tr><td colspan="2" style="padding:8px; text-align:center; color:#888;">Sin datos suficientes</td></tr>';
+
+    const filasDetalleAreas = Object.entries(stats.detallePorArea || {}).map(([area, det]) => `
+      <tr>
+        <td style="padding:4px 8px; border-bottom:1px solid #eee;">${area}</td>
+        <td style="padding:4px 8px; border-bottom:1px solid #eee; text-align:right;">${det.rotInf}</td>
+        <td style="padding:4px 8px; border-bottom:1px solid #eee; text-align:right;">${det.rotRep}</td>
+        <td style="padding:4px 8px; border-bottom:1px solid #eee; text-align:right;">${det.rotPen}</td>
+        <td style="padding:4px 8px; border-bottom:1px solid #eee; text-align:right;">${det.objInf}</td>
+        <td style="padding:4px 8px; border-bottom:1px solid #eee; text-align:right;">${det.objRep}</td>
+        <td style="padding:4px 8px; border-bottom:1px solid #eee; text-align:right;">${det.objPen}</td>
+      </tr>
+    `).join('') || '<tr><td colspan="7" style="padding:8px; text-align:center; color:#888;">Sin datos por área</td></tr>';
+
+    contenido.innerHTML = `
+      <h2 style="margin:0 0 16px 0; color:#1976d2; display:flex; align-items:center; gap:10px;">
+        <span style="font-size:26px;">📊</span>
+        Estadísticas de inspecciones
+      </h2>
+      <p style="margin:0 0 16px 0; color:#555; font-size:13px;">Resumen basado en los informes guardados de la bitácora de inspección.</p>
+
+      <div style="display:flex; flex-wrap:wrap; gap:12px; margin-bottom:18px;">
+        <div style="flex:1 1 200px; background:#e3f2fd; border-radius:10px; padding:12px 14px;">
+          <div style="font-size:12px; color:#1565c0; font-weight:600;">Roturas informadas</div>
+          <div style="font-size:22px; font-weight:700; color:#0d47a1;">${stats.totalRoturas}</div>
+          <div style="font-size:11px; color:#666;">Reparadas: ${stats.roturasReparadas} • Pendientes: ${stats.roturasPendientes}</div>
+        </div>
+        <div style="flex:1 1 200px; background:#ffebee; border-radius:10px; padding:12px 14px;">
+          <div style="font-size:12px; color:#c62828; font-weight:600;">Anomalías informadas</div>
+          <div style="font-size:22px; font-weight:700; color:#b71c1c;">${stats.totalAnomalias}</div>
+          <div style="font-size:11px; color:#666;">Reparadas: ${stats.anomaliasReparadas} • Pendientes: ${stats.anomaliasPendientes}</div>
+        </div>
+        <div style="flex:1 1 200px; background:#e8f5e9; border-radius:10px; padding:12px 14px;">
+          <div style="font-size:12px; color:#2e7d32; font-weight:600;">Cumplimiento</div>
+          <div style="font-size:14px; color:#1b5e20;">Roturas: <strong>${pctRotReparadas}%</strong></div>
+          <div style="font-size:14px; color:#1b5e20;">Anomalías: <strong>${pctAnomReparadas}%</strong></div>
+          <div style="font-size:11px; color:#666; margin-top:4px;">Promedio roturas/día: ${stats.promedioRoturas}</div>
+        </div>
+        <div style="flex:1 1 200px; background:#fafafa; border-radius:10px; padding:12px 14px;">
+          <div style="font-size:12px; color:#424242; font-weight:600;">Visión general</div>
+          <div style="font-size:20px; font-weight:700; color:#212121;">${totalIncidencias}</div>
+          <div style="font-size:11px; color:#666;">Total de incidencias (roturas + anomalías)</div>
+        </div>
+      </div>
+
+      <div style="display:flex; flex-wrap:wrap; gap:20px; margin-bottom:12px;">
+        <div style="flex:1 1 260px;">
+          <h3 style="margin:0 0 8px 0; font-size:14px; color:#1976d2;">Tendencia de roturas por día</h3>
+          <table style="width:100%; border-collapse:collapse; font-size:12px;">
+            <thead>
+              <tr style="background:#f5f5f5;">
+                <th style="padding:6px 8px; text-align:left;">Fecha</th>
+                <th style="padding:6px 8px; text-align:right;">Roturas</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${filasTendencia || '<tr><td colspan="2" style="padding:8px; text-align:center; color:#888;">Sin datos de fechas</td></tr>'}
+            </tbody>
+          </table>
+        </div>
+        <div style="flex:1 1 260px;">
+          <h3 style="margin:0 0 8px 0; font-size:14px; color:#1976d2;">Áreas más problemáticas</h3>
+          <table style="width:100%; border-collapse:collapse; font-size:12px;">
+            <thead>
+              <tr style="background:#f5f5f5;">
+                <th style="padding:6px 8px; text-align:left;">Área</th>
+                <th style="padding:6px 8px; text-align:right;">Incidencias</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${filasAreas}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div style="margin-top:12px;">
+        <h3 style="margin:0 0 8px 0; font-size:14px; color:#1976d2;">Detalle por área</h3>
+        <table style="width:100%; border-collapse:collapse; font-size:12px;">
+          <thead>
+            <tr style="background:#f5f5f5;">
+              <th style="padding:6px 8px; text-align:left;">Área</th>
+              <th style="padding:6px 8px; text-align:right;">Roturas inf.</th>
+              <th style="padding:6px 8px; text-align:right;">Roturas rep.</th>
+              <th style="padding:6px 8px; text-align:right;">Roturas pend.</th>
+              <th style="padding:6px 8px; text-align:right;">Anom. inf.</th>
+              <th style="padding:6px 8px; text-align:right;">Anom. rep.</th>
+              <th style="padding:6px 8px; text-align:right;">Anom. pend.</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filasDetalleAreas}
+          </tbody>
+        </table>
+      </div>
+
+      <div style="margin-top:16px; text-align:right;">
+        <button id="cerrarEstadisticas" style="padding:8px 16px; background:#757575; color:#fff; border:none; border-radius:6px; cursor:pointer;">Cerrar</button>
+      </div>
+    `;
+
+    modal.appendChild(contenido);
+    document.body.appendChild(modal);
+
+    contenido.querySelector('#cerrarEstadisticas').onclick = () => modal.remove();
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+  } catch (e) {
+    console.error('Error al mostrar estadísticas', e);
+    alert('No se pudieron calcular las estadísticas. Revisa la consola para más detalles.');
   }
 }
 
@@ -3743,79 +4169,34 @@ if (cargarFotosMenu) {
   });
 }
 
-// ========== FUNCIÓN DE EXPORTACIÓN A PDF ==========
+// ========== FUNCIÓN DE EXPORTACIÓN USANDO VENTANA DE IMPRESIÓN ==========
 function exportarInformeAPDF() {
-  // Preguntar el nombre del archivo
-  const fecha = new Date().toLocaleDateString('es-CL').replace(/\//g, '-');
-  const nombreDefault = `Informe_${fecha}`;
-  const nombreArchivo = prompt('📄 Ingrese el nombre del archivo PDF:', nombreDefault);
-  if (!nombreArchivo) {
-    return; // Usuario canceló
-  }
   // Cerrar paneles si están abiertos
   cerrarPaneles();
-  // Ocultar el menú lateral temporalmente y mostrar el contenido principal si está oculto
+
   const menuLateral = document.querySelector('.menu-lateral');
   const mainContent = document.getElementById('mainContent');
   const contenidoPrincipal = document.getElementById('panelLineas');
-  // Si el contenedor no existe, abortar
-  if (!contenidoPrincipal) {
-    alert('No se encontró el panel de hojas para exportar.');
+
+  if (!contenidoPrincipal || !mainContent || !menuLateral) {
+    alert('No se encontró el panel de hojas para imprimir.');
     return;
   }
-  // Guardar estado de visibilidad original
+
   const mainContentDisplay = mainContent.style.display;
+  const menuDisplay = menuLateral.style.display;
+  const originalMargin = contenidoPrincipal.style.marginLeft;
+
   mainContent.style.display = '';
-  // Guardar estilos originales si aplica
-  let originalMargin = '';
-  if (contenidoPrincipal.style && contenidoPrincipal.style.marginLeft !== undefined) {
-    originalMargin = contenidoPrincipal.style.marginLeft;
-    contenidoPrincipal.style.marginLeft = '0';
-  }
   menuLateral.style.display = 'none';
-  // Mostrar mensaje de espera
-  const mensajeEspera = document.createElement('div');
-  mensajeEspera.style.cssText = 'position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:rgba(0,0,0,0.9); color:white; padding:30px 50px; border-radius:12px; z-index:99999; font-size:18px; text-align:center;';
-  mensajeEspera.innerHTML = '💾 Generando PDF...<br><small style="font-size:14px; opacity:0.8;">Por favor espere</small>';
-  document.body.appendChild(mensajeEspera);
-  // Dar tiempo para que se apliquen los cambios
-  setTimeout(() => {
-    const pdfOptions = {
-      margin:       [10, 10, 10, 10],
-      filename:     `${nombreArchivo}.pdf`,
-      image:        { type: 'jpeg', quality: 0.98 },
-      html2canvas:  {
-        scale: 1,
-        useCORS: true,
-        backgroundColor: '#fff',
-        logging: false,
-        scrollY: 0,
-        scrollX: 0
-      },
-      jsPDF:        { unit: 'mm', format: 'a4', orientation: 'landscape' }, // horizontal
-      pagebreak:    { mode: ['avoid-all', 'css', 'legacy'] }
-    };
-    html2pdf().set(pdfOptions).from(contenidoPrincipal).save().then(() => {
-      // Restaurar después de exportar
-      menuLateral.style.display = 'flex';
-      contenidoPrincipal.style.marginLeft = originalMargin || '60px';
-      mainContent.style.display = mainContentDisplay;
-      mensajeEspera.remove();
-      // Mostrar mensaje de éxito
-      const mensaje = document.createElement('div');
-      mensaje.style.cssText = 'position:fixed; top:20px; right:20px; background:#4caf50; color:white; padding:16px 24px; border-radius:8px; z-index:99999; font-weight:600; box-shadow:0 4px 12px rgba(0,0,0,0.3);';
-      mensaje.textContent = '✅ PDF exportado correctamente';
-      document.body.appendChild(mensaje);
-      setTimeout(() => mensaje.remove(), 3000);
-    }).catch(err => {
-      console.error('Error al generar PDF:', err);
-      menuLateral.style.display = 'flex';
-      contenidoPrincipal.style.marginLeft = originalMargin || '60px';
-      mainContent.style.display = mainContentDisplay;
-      mensajeEspera.remove();
-      alert('❌ Error al generar el PDF. Inténtalo nuevamente.');
-    });
-  }, 400);
+  contenidoPrincipal.style.marginLeft = '0';
+
+  window.print();
+
+  // Restaurar estado original después de abrir la ventana de impresión
+  mainContent.style.display = mainContentDisplay;
+  menuLateral.style.display = menuDisplay || 'flex';
+  contenidoPrincipal.style.marginLeft = originalMargin || '60px';
 }
 
 // ========== EDITOR DE RECORTE DE IMAGEN ==========
@@ -4304,7 +4685,25 @@ let colaSincronizacion = JSON.parse(localStorage.getItem('colaSincronizacion') |
 
 // Guardar cola en localStorage
 function guardarColaSincronizacion() {
-  localStorage.setItem('colaSincronizacion', JSON.stringify(colaSincronizacion));
+  try {
+    // Limitar tamaño máximo de la cola para evitar QuotaExceededError
+    const MAX_ITEMS_COLA = 50;
+    if (colaSincronizacion.length > MAX_ITEMS_COLA) {
+      // Mantener solo las últimas operaciones más recientes
+      colaSincronizacion = colaSincronizacion.slice(-MAX_ITEMS_COLA);
+    }
+
+    localStorage.setItem('colaSincronizacion', JSON.stringify(colaSincronizacion));
+  } catch (e) {
+    console.warn('No se pudo guardar colaSincronizacion, limpiando cola:', e);
+    // Si se excede la cuota, vaciar cola para no bloquear el guardado del informe
+    colaSincronizacion = [];
+    try {
+      localStorage.removeItem('colaSincronizacion');
+    } catch (_) {
+      // ignorar
+    }
+  }
   actualizarContadorColaSincronizacion();
 }
 
