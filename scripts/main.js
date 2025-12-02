@@ -3361,7 +3361,11 @@ function verPanelRecordatorios() {
       const tieneAnomPend = (r.anomaliasP || 0) > 0 && !r.anomaliaCompletada;
       return tieneRoturaPend || tieneAnomPend;
     });
-    const completados = recordatoriosActualizados.filter(r => !((r.roturasP || 0) > 0 && !r.roturaCompletada) && !((r.anomaliasP || 0) > 0 && !r.anomaliaCompletada));
+    const completados = recordatoriosActualizados.filter(r => {
+      const tieneRotPend = (r.roturasP || 0) > 0 && !r.roturaCompletada;
+      const tieneAnomPend = (r.anomaliasP || 0) > 0 && !r.anomaliaCompletada;
+      return !tieneRotPend && !tieneAnomPend;
+    });
 
     const totalRoturasPend = activos.reduce((acc, r) => acc + (r.roturasP || 0), 0);
     const totalAnomaliasPend = activos.reduce((acc, r) => acc + (r.anomaliasP || 0), 0);
