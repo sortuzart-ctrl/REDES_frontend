@@ -820,8 +820,18 @@ async function inicializarUsuarios() {
         { nombre: 'María Pérez', pass: 'usuario1', rol: 'Usuario', bloqueado: false, fechaRegistro: '2025-11-30' },
         { nombre: 'Carlos Soto', pass: 'usuario2', rol: 'Usuario', bloqueado: false, fechaRegistro: '2025-11-30' }
       ];
+      // Usuario fijo solicitado: prueba1 / Prueba_2025
+      usuarios.push({ nombre: 'prueba1', pass: 'Prueba_2025', rol: 'Usuario', bloqueado: false, fechaRegistro: '2025-12-02' });
       for (const u of usuarios) {
         await guardarUsuarioEnIndexedDB(u);
+      }
+    } else {
+      // Asegurar que exista el usuario prueba1 aunque ya haya datos
+      const existePrueba1 = usuarios.some(u => u.nombre === 'prueba1');
+      if (!existePrueba1) {
+        const nuevo = { nombre: 'prueba1', pass: 'Prueba_2025', rol: 'Usuario', bloqueado: false, fechaRegistro: '2025-12-02' };
+        await guardarUsuarioEnIndexedDB(nuevo);
+        usuarios.push(nuevo);
       }
     }
     usuariosLogueados = usuarios;
@@ -830,7 +840,8 @@ async function inicializarUsuarios() {
     usuariosLogueados = [
       { nombre: 'Sortuzar', pass: 'admin123', tipo: 'SuperAdmin', empresa: '', bloqueado: false, fechaRegistro: '2025-11-30' },
       { nombre: 'María Pérez', pass: 'usuario1', rol: 'Usuario', bloqueado: false, fechaRegistro: '2025-11-30' },
-      { nombre: 'Carlos Soto', pass: 'usuario2', rol: 'Usuario', bloqueado: false, fechaRegistro: '2025-11-30' }
+      { nombre: 'Carlos Soto', pass: 'usuario2', rol: 'Usuario', bloqueado: false, fechaRegistro: '2025-11-30' },
+      { nombre: 'prueba1', pass: 'Prueba_2025', rol: 'Usuario', bloqueado: false, fechaRegistro: '2025-12-02' }
     ];
   }
 }
@@ -3418,22 +3429,15 @@ function verPanelRecordatorios() {
       btnRepararRoturas.addEventListener('click', () => {
         const recs = obtenerRecordatorios();
         let modificados = 0;
-        const timestampsAReparar = new Set();
 
         recs.forEach(r => {
           if ((r.roturasP || 0) > 0 && !r.roturaCompletada && r.timestamp) {
             r.roturaCompletada = true;
             modificados++;
-            timestampsAReparar.add(r.timestamp);
           }
         });
 
         if (modificados > 0) {
-          // Aplicar reparaciones en cada informe afectado
-          timestampsAReparar.forEach(ts => {
-            aplicarReparacionesEnInforme(ts, { repararRoturas: true, repararAnomalias: false }).catch(e => console.error('Error aplicando reparaciones de roturas en informe', e));
-          });
-
           guardarRecordatorios(recs);
           mostrarNotificacion(`✅ Se marcaron todas las roturas pendientes como reparadas`, 3000);
           renderizarRecordatorios();
@@ -3448,21 +3452,15 @@ function verPanelRecordatorios() {
       btnRepararAnomalias.addEventListener('click', () => {
         const recs = obtenerRecordatorios();
         let modificados = 0;
-        const timestampsAReparar = new Set();
 
         recs.forEach(r => {
           if ((r.anomaliasP || 0) > 0 && !r.anomaliaCompletada && r.timestamp) {
             r.anomaliaCompletada = true;
             modificados++;
-            timestampsAReparar.add(r.timestamp);
           }
         });
 
         if (modificados > 0) {
-          timestampsAReparar.forEach(ts => {
-            aplicarReparacionesEnInforme(ts, { repararRoturas: false, repararAnomalias: true }).catch(e => console.error('Error aplicando reparaciones de anomalías en informe', e));
-          });
-
           guardarRecordatorios(recs);
           mostrarNotificacion(`✅ Se marcaron todas las anomalías pendientes como reparadas`, 3000);
           renderizarRecordatorios();
