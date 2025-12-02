@@ -75,6 +75,12 @@
       <img src="iconos/guardar.png" class="menu-icon-img" alt="PDF" />
       <span class="menu-texto">Exportar PDF</span>
     </button>
+
+    <!-- Botón Cerrar sesión -->
+    <button id="logoutBtn" class="menu-item" title="Cerrar sesión" style="display:none;">
+      <img src="iconos/salir.png" class="menu-icon-img" alt="Salir" />
+      <span class="menu-texto">Salir</span>
+    </button>
     
       <!-- Botón Admin -->
       <button id="adminMenuBtn" class="menu-item" title="Administración">
@@ -84,7 +90,10 @@
     
       <!-- Panel Admin para mostrar usuarios logueados -->
       <div id="adminPanel" class="panel-lateral oculto">
-        <h4>👤 Usuarios registrados</h4>
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+          <h4 style="margin:0;">👤 Usuarios registrados</h4>
+          <button id="cerrarAdminPanel" style="padding:4px 10px; font-size:12px;">Cerrar</button>
+        </div>
         <ul id="loggedUsersList" style="padding-left:18px;"></ul>
         <hr />
         <h4>Registrar nuevo usuario</h4>

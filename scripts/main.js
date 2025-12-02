@@ -225,6 +225,8 @@ if (menuToggle) {
 // Admin menu y usuarios logueados
 const adminMenuBtn = document.getElementById('adminMenuBtn');
 const adminPanel = document.getElementById('adminPanel');
+const logoutBtn = document.getElementById('logoutBtn');
+const cerrarAdminPanelBtn = document.getElementById('cerrarAdminPanel');
 const loggedUsersList = document.getElementById('loggedUsersList');
 
 // Usuarios logueados y usuario actual (persistidos en IndexedDB)
@@ -238,6 +240,27 @@ const loginForm = document.getElementById('loginForm');
 const loginError = document.getElementById('loginError');
 const registerUserForm = document.getElementById('registerUserForm');
 const registerError = document.getElementById('registerError');
+
+// Eventos de UI relacionados con admin y sesión
+if (adminMenuBtn && adminPanel) {
+  adminMenuBtn.addEventListener('click', () => {
+    adminPanel.classList.toggle('oculto');
+  });
+}
+
+if (cerrarAdminPanelBtn && adminPanel) {
+  cerrarAdminPanelBtn.addEventListener('click', () => {
+    adminPanel.classList.add('oculto');
+  });
+}
+
+if (logoutBtn) {
+  logoutBtn.addEventListener('click', () => {
+    usuarioActual = null;
+    mostrarLogin();
+    actualizarUIUsuario();
+  });
+}
 
 function mostrarMenu() {
   document.querySelector('.menu-lateral').style.pointerEvents = '';
@@ -262,13 +285,21 @@ function mostrarApp() {
   if (loginSection) loginSection.style.display = 'none';
   if (mainContent) mainContent.style.display = '';
   mostrarMenu();
-  // Desactivar botón Admin si no es admin
+  actualizarUIUsuario();
+}
+
+function actualizarUIUsuario() {
+  // Botón Admin según rol
   if (adminMenuBtn) {
     if (!usuarioActual || (usuarioActual.rol !== 'Admin' && usuarioActual.tipo !== 'SuperAdmin')) {
       adminMenuBtn.style.display = 'none';
     } else {
       adminMenuBtn.style.display = '';
     }
+  }
+  // Botón cerrar sesión
+  if (logoutBtn) {
+    logoutBtn.style.display = usuarioActual ? '' : 'none';
   }
 }
 
