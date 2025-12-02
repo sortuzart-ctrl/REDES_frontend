@@ -227,12 +227,8 @@ const adminMenuBtn = document.getElementById('adminMenuBtn');
 const adminPanel = document.getElementById('adminPanel');
 const loggedUsersList = document.getElementById('loggedUsersList');
 
-// Usuarios logueados y usuario actual
-let usuariosLogueados = [
-  { nombre: 'Sortuzar', pass: 'admin123', tipo: 'SuperAdmin', empresa: '', bloqueado: false, fechaRegistro: '2025-11-30' },
-  { nombre: 'María Pérez', pass: 'usuario1', rol: 'Usuario', bloqueado: false, fechaRegistro: '2025-11-30' },
-  { nombre: 'Carlos Soto', pass: 'usuario2', rol: 'Usuario', bloqueado: false, fechaRegistro: '2025-11-30' }
-];
+// Usuarios logueados y usuario actual (persistidos en IndexedDB)
+let usuariosLogueados = [];
 let usuarioActual = null;
 
 // Elementos login y registro
@@ -749,15 +745,69 @@ if (registerUserForm) {
       return;
     }
     const fechaRegistro = new Date().toISOString().split('T')[0];
-    usuariosLogueados.push({ nombre, pass, tipo, empresa, bloqueado: false, fechaRegistro });
+    const nuevoUsuario = { nombre, pass, tipo, empresa, bloqueado: false, fechaRegistro };
+    usuariosLogueados.push(nuevoUsuario);
+    // Guardar también en IndexedDB
+    if (typeof guardarUsuarioEnIndexedDB === 'function') {
+      guardarUsuarioEnIndexedDB(nuevoUsuario).catch(err => console.error('Error guardando usuario en IndexedDB', err));
+    }
     if (registerError) registerError.style.display = 'none';
     mostrarUsuariosLogueados();
     registerUserForm.reset();
   });
 }
 
-// Mostrar login al inicio
-mostrarLogin();
+// Funciones IndexedDB para usuarios usando la misma base de datos
+async function guardarUsuarioEnIndexedDB(usuario) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_USUARIOS, 'readwrite');
+    const store = tx.objectStore(STORE_USUARIOS);
+    store.put(usuario);
+    tx.oncomplete = () => resolve();
+    tx.onerror = (e) => reject(e.target.error);
+  });
+}
+
+async function cargarUsuariosDesdeIndexedDB() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_USUARIOS, 'readonly');
+    const store = tx.objectStore(STORE_USUARIOS);
+    const request = store.getAll();
+    request.onsuccess = () => resolve(request.result || []);
+    request.onerror = (e) => reject(e.target.error);
+  });
+}
+
+async function inicializarUsuarios() {
+  try {
+    let usuarios = await cargarUsuariosDesdeIndexedDB();
+    if (!usuarios || usuarios.length === 0) {
+      usuarios = [
+        { nombre: 'Sortuzar', pass: 'admin123', tipo: 'SuperAdmin', empresa: '', bloqueado: false, fechaRegistro: '2025-11-30' },
+        { nombre: 'María Pérez', pass: 'usuario1', rol: 'Usuario', bloqueado: false, fechaRegistro: '2025-11-30' },
+        { nombre: 'Carlos Soto', pass: 'usuario2', rol: 'Usuario', bloqueado: false, fechaRegistro: '2025-11-30' }
+      ];
+      for (const u of usuarios) {
+        await guardarUsuarioEnIndexedDB(u);
+      }
+    }
+    usuariosLogueados = usuarios;
+  } catch (e) {
+    console.error('Error inicializando usuarios desde IndexedDB', e);
+    usuariosLogueados = [
+      { nombre: 'Sortuzar', pass: 'admin123', tipo: 'SuperAdmin', empresa: '', bloqueado: false, fechaRegistro: '2025-11-30' },
+      { nombre: 'María Pérez', pass: 'usuario1', rol: 'Usuario', bloqueado: false, fechaRegistro: '2025-11-30' },
+      { nombre: 'Carlos Soto', pass: 'usuario2', rol: 'Usuario', bloqueado: false, fechaRegistro: '2025-11-30' }
+    ];
+  }
+}
+
+// Inicializar usuarios y luego mostrar login
+inicializarUsuarios().finally(() => {
+  mostrarLogin();
+});
 const verRecordatorios = document.getElementById('verRecordatorios');
 const badgeRecordatorios = document.getElementById('badgeRecordatorios');
 const exportarPDF = document.getElementById('exportarPDF');
@@ -779,10 +829,11 @@ let contadorNumerosFotos = 1; // Contador global para mantener numeración conti
 // Overlay para cerrar paneles
 const overlayPanel = document.getElementById('overlayPanel');
 
-// ================== INDEXEDDB PARA INFORMES GRANDES ==================
+// ================== INDEXEDDB PARA INFORMES GRANDES Y USUARIOS ==================
 const DB_NAME = 'bitacoraDB';
-const DB_VERSION = 1;
+const DB_VERSION = 2; // subir versión para asegurar store de usuarios
 const STORE_INFORMES = 'informesGuardados';
+const STORE_USUARIOS = 'usuarios';
 
 function openDB() {
   return new Promise((resolve, reject) => {
@@ -793,6 +844,9 @@ function openDB() {
       if (!db.objectStoreNames.contains(STORE_INFORMES)) {
         const store = db.createObjectStore(STORE_INFORMES, { keyPath: 'id', autoIncrement: true });
         store.createIndex('timestamp', 'timestamp', { unique: false });
+      }
+      if (!db.objectStoreNames.contains(STORE_USUARIOS)) {
+        db.createObjectStore(STORE_USUARIOS, { keyPath: 'nombre' });
       }
     };
 
@@ -820,6 +874,40 @@ async function getInformesIndexedDB() {
     const req = store.getAll();
     req.onsuccess = () => resolve(req.result || []);
     req.onerror = () => reject(req.error || new Error('Error leyendo informes desde IndexedDB'));
+  });
+}
+
+async function getInformeByTimestampIndexedDB(timestamp) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_INFORMES, 'readonly');
+    const store = tx.objectStore(STORE_INFORMES);
+    const index = store.index('timestamp');
+    const req = index.get(timestamp);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error || new Error('Error buscando informe en IndexedDB'));
+  });
+}
+
+async function updateInformeIndexedDB(timestamp, cambios) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_INFORMES, 'readwrite');
+    const store = tx.objectStore(STORE_INFORMES);
+    const index = store.index('timestamp');
+    const getReq = index.get(timestamp);
+    getReq.onsuccess = () => {
+      const existente = getReq.result;
+      if (!existente) {
+        reject(new Error('Informe no encontrado para actualizar'));
+        return;
+      }
+      const actualizado = { ...existente, ...cambios };
+      const putReq = store.put(actualizado);
+      putReq.onsuccess = () => resolve(actualizado);
+      putReq.onerror = () => reject(putReq.error || new Error('Error actualizando informe en IndexedDB'));
+    };
+    getReq.onerror = () => reject(getReq.error || new Error('Error leyendo informe en IndexedDB'));
   });
 }
 
@@ -2438,7 +2526,7 @@ function restaurarBitacora() {
 }
 
 // Guardar informe del día actual
-function guardarInformeDiario() {
+async function guardarInformeDiario() {
   // ========== VALIDACIÓN DE CAMPOS OBLIGATORIOS ==========
   const errores = [];
   
@@ -2494,10 +2582,11 @@ function guardarInformeDiario() {
     // Modo actualización
     const idx = parseInt(editandoIdx);
     try {
-      const informes = JSON.parse(localStorage.getItem('informesGuardados') || '[]');
+      const indice = JSON.parse(localStorage.getItem('informesGuardados') || '[]');
       
-      if (idx >= 0 && idx < informes.length) {
-        const nombreActual = informes[idx].nombre;
+      if (idx >= 0 && idx < indice.length) {
+        const itemIndice = indice[idx];
+        const nombreActual = itemIndice.nombre;
         const confirmarNombre = prompt('Confirmar nombre del informe:', nombreActual);
         
         if (!confirmarNombre) {
@@ -2508,15 +2597,23 @@ function guardarInformeDiario() {
           return;
         }
         
-        // Actualizar informe existente
-        informes[idx] = {
-          ...informes[idx],
+        const nuevoTimestamp = Date.now();
+
+        // Actualizar en IndexedDB usando el timestamp antiguo
+        await updateInformeIndexedDB(itemIndice.timestamp, {
           nombre: confirmarNombre,
           contenido: panelLineas.innerHTML,
-          timestamp: Date.now()
+          timestamp: nuevoTimestamp
+        });
+
+        // Actualizar índice ligero en localStorage
+        indice[idx] = {
+          fecha: itemIndice.fecha,
+          nombre: confirmarNombre,
+          timestamp: nuevoTimestamp
         };
-        
-        localStorage.setItem('informesGuardados', JSON.stringify(informes));
+        localStorage.setItem('informesGuardados', JSON.stringify(indice));
+
         alert(`✅ Informe "${confirmarNombre}" actualizado exitosamente`);
         
         // Salir del modo edición
@@ -2731,17 +2828,31 @@ function restaurarEventListenersInforme() {
   console.log('Event listeners restaurados para edición');
 }
 
-function verConsolidadoInformes() {
+async function verConsolidadoInformes() {
   try {
-    const informes = JSON.parse(localStorage.getItem('informesGuardados') || '[]');
+    const indice = JSON.parse(localStorage.getItem('informesGuardados') || '[]');
     
-    if (informes.length === 0) {
+    if (indice.length === 0) {
       alert('No hay informes guardados para analizar.');
       return;
     }
 
+    // Cargar contenido completo desde IndexedDB según el índice
+    const informesCompletos = [];
+    for (const item of indice) {
+      const inf = await getInformeByTimestampIndexedDB(item.timestamp);
+      if (inf && inf.contenido) {
+        informesCompletos.push(inf);
+      }
+    }
+
+    if (informesCompletos.length === 0) {
+      alert('No se pudo cargar el contenido de los informes para el consolidado.');
+      return;
+    }
+
     // Analizar datos de los informes
-    const stats = analizarDatosInformes(informes);
+    const stats = analizarDatosInformes(informesCompletos);
     
     // Crear modal
     const modal = document.createElement('div');
@@ -2960,12 +3071,31 @@ function actualizarBadgeRecordatorios() {
 }
 
 // Generar recordatorios automáticos desde las bitácoras
-function generarRecordatoriosAutomaticos() {
-  const informes = JSON.parse(localStorage.getItem('informesGuardados') || '[]');
+async function generarRecordatoriosAutomaticos() {
+  const indice = JSON.parse(localStorage.getItem('informesGuardados') || '[]');
   const recordatoriosExistentes = obtenerRecordatorios();
   const nuevosRecordatorios = [];
   
-  informes.forEach(informe => {
+  for (const item of indice) {
+    // Intentar obtener el informe completo desde IndexedDB
+    let informe = null;
+    try {
+      if (item.timestamp) {
+        informe = await getInformeByTimestampIndexedDB(item.timestamp);
+      }
+    } catch (e) {
+      console.warn('No se pudo leer informe desde IndexedDB para recordatorios', e);
+    }
+
+    // Compatibilidad: si no se encuentra en IndexedDB pero el índice aún tiene contenido embebido
+    if (!informe || !informe.contenido) {
+      if (item.contenido) {
+        informe = item;
+      } else {
+        continue;
+      }
+    }
+
     const tempDiv = document.createElement('div');
     tempDiv.innerHTML = informe.contenido;
     
@@ -3022,7 +3152,7 @@ function generarRecordatoriosAutomaticos() {
         }
       });
     }
-  });
+  }
   
   if (nuevosRecordatorios.length > 0) {
     const todosRecordatorios = [...recordatoriosExistentes, ...nuevosRecordatorios];
@@ -3242,7 +3372,7 @@ if (guardarInforme) {
 }
 
 if (verConsolidado) {
-  verConsolidado.addEventListener('click', verConsolidadoInformes);
+  verConsolidado.addEventListener('click', abrirListaInformesGuardados);
 }
 
 // if (verEstadisticas) {
@@ -3288,6 +3418,145 @@ if (nuevoInforme) {
       alert('✅ Nuevo informe iniciado. Los datos de la bitácora se han preservado.');
     }
   });
+}
+
+// ================== LISTA Y EDICIÓN DE INFORMES ==================
+async function abrirListaInformesGuardados() {
+  try {
+    const indice = JSON.parse(localStorage.getItem('informesGuardados') || '[]');
+    if (!indice.length) {
+      alert('No hay informes guardados.');
+      return;
+    }
+
+    const modal = document.createElement('div');
+    modal.style.cssText = 'position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:9999; display:flex; align-items:center; justify-content:center; padding:20px;';
+
+    const contenido = document.createElement('div');
+    contenido.style.cssText = 'background:#fff; padding:24px; border-radius:12px; max-width:900px; width:100%; max-height:80vh; overflow:auto; box-shadow:0 4px 16px rgba(0,0,0,0.2);';
+
+    const filas = indice
+      .slice()
+      .sort((a,b) => (b.timestamp||0) - (a.timestamp||0))
+      .map((inf, idx) => {
+        const fecha = inf.fecha || new Date(inf.timestamp || Date.now()).toISOString().split('T')[0];
+        return `
+          <tr data-idx="${idx}">
+            <td>${idx + 1}</td>
+            <td>${fecha}</td>
+            <td>${inf.nombre || 'Sin nombre'}</td>
+            <td>${new Date(inf.timestamp || Date.now()).toLocaleString()}</td>
+            <td style="text-align:right;">
+              <button class="btn-editar-inf" data-idx="${idx}" style="margin-right:6px; padding:4px 10px;">✏️ Editar</button>
+              <button class="btn-eliminar-inf" data-idx="${idx}" style="padding:4px 10px;">🗑️ Eliminar</button>
+            </td>
+          </tr>`;
+      }).join('');
+
+    contenido.innerHTML = `
+      <h2 style="margin:0 0 16px 0; color:#1976d2;">📁 Informes guardados</h2>
+      <p style="margin:0 0 12px 0; color:#555; font-size:13px;">Haz clic en ✏️ Editar para cargar un informe en la bitácora y poder modificarlo.</p>
+      <table style="width:100%; border-collapse:collapse; font-size:13px;">
+        <thead>
+          <tr style="background:#f5f5f5;">
+            <th style="padding:8px; text-align:left;">#</th>
+            <th style="padding:8px; text-align:left;">Fecha</th>
+            <th style="padding:8px; text-align:left;">Nombre</th>
+            <th style="padding:8px; text-align:left;">Creado/Actualizado</th>
+            <th style="padding:8px; text-align:right;">Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${filas}
+        </tbody>
+      </table>
+      <div style="margin-top:16px; text-align:right;">
+        <button id="cerrarListaInformes" style="padding:8px 16px; background:#757575; color:#fff; border:none; border-radius:6px; cursor:pointer;">Cerrar</button>
+      </div>
+    `;
+
+    modal.appendChild(contenido);
+    document.body.appendChild(modal);
+
+    contenido.querySelector('#cerrarListaInformes').onclick = () => modal.remove();
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+
+    // Manejar edición
+    contenido.querySelectorAll('.btn-editar-inf').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const idx = parseInt(btn.dataset.idx, 10);
+        const item = indice[idx];
+        if (!item || !item.timestamp) {
+          alert('No se encontró la referencia del informe.');
+          return;
+        }
+        const informe = await getInformeByTimestampIndexedDB(item.timestamp);
+        if (!informe || !informe.contenido) {
+          alert('No se pudo cargar el contenido del informe desde IndexedDB.');
+          return;
+        }
+
+        // Guardar bitácora actual y limpiar panel
+        guardarBitacora();
+        panelLineas.innerHTML = '';
+        asegurarBitacoraAlFinal();
+
+        // Cargar contenido del informe
+        panelLineas.innerHTML = informe.contenido;
+        restaurarEventListenersInforme();
+
+        // Marcar modo edición
+        if (guardarInforme) {
+          guardarInforme.dataset.editandoIdx = idx.toString();
+          guardarInforme.textContent = '🔄 Actualizar';
+          guardarInforme.style.background = '#1976d2';
+          guardarInforme.style.color = '#fff';
+        }
+
+        modal.remove();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      });
+    });
+
+    // Manejar eliminación
+    contenido.querySelectorAll('.btn-eliminar-inf').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const idx = parseInt(btn.dataset.idx, 10);
+        const item = indice[idx];
+        if (!item) return;
+        if (!confirm('¿Eliminar este informe guardado? Esta acción no se puede deshacer.')) return;
+
+        // Eliminar del índice en localStorage
+        const nuevoIndice = indice.filter((_, i) => i !== idx);
+        localStorage.setItem('informesGuardados', JSON.stringify(nuevoIndice));
+
+        // Opcional: eliminar también de IndexedDB
+        try {
+          const db = await openDB();
+          const tx = db.transaction(STORE_INFORMES, 'readwrite');
+          const store = tx.objectStore(STORE_INFORMES);
+          const indexTS = store.index('timestamp');
+          const req = indexTS.get(item.timestamp);
+          req.onsuccess = () => {
+            const rec = req.result;
+            if (rec && rec.id != null) {
+              store.delete(rec.id);
+            }
+          };
+        } catch (_) {
+          // si falla, al menos ya se eliminó del índice
+        }
+
+        modal.remove();
+        abrirListaInformesGuardados();
+      });
+    });
+  } catch (e) {
+    console.error(e);
+    alert('❌ Error al cargar la lista de informes guardados.');
+  }
 }
 
 // Botón Agregar Texto al Esquema
